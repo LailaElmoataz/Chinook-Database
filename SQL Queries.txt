@@ -1,0 +1,90 @@
+/* Query 1: average track length by genre*/ 
+
+WITH tracklength AS
+  (SELECT g.name AS genre,
+          (AVG(t.milliseconds)/1000) AS avg_seconds
+   FROM Genre g
+   JOIN Track t USING (GenreId)
+   GROUP BY 1
+   ORDER BY 2 DESC)
+SELECT *,
+  (SELECT avg_seconds
+   FROM tracklength
+   LIMIT 1
+   OFFSET
+     (SELECT COUNT(*)/2
+      FROM tracklength)) AS median
+FROM tracklength;
+
+
+/* Query 2: top genres in our top 5 countries */ 
+
+WITH t AS
+  (SELECT i.BillingCountry,
+          COUNT(il.invoicelineid) total_purchases
+   FROM Genre g
+   JOIN Track t USING(GenreId)
+   JOIN InvoiceLine il USING(TrackId)
+   JOIN Invoice i USING(InvoiceId)
+   WHERE i.BillingCountry IN
+       (SELECT i.BillingCountry AS country
+        FROM Invoice i
+        GROUP BY 1
+        ORDER BY SUM(i.total) DESC
+        LIMIT 5)
+   GROUP BY 1)
+SELECT BillingCountry,
+       CASE
+           WHEN pct > 0.025 THEN genre
+           ELSE 'Other'
+       END AS genre_,
+       SUM(pct) AS purchase_pct
+FROM
+  (SELECT i.BillingCountry,
+          g.name AS genre,
+          COUNT(il.invoicelineid) purchases,
+          (COUNT(il.invoicelineid)/ (1.00*t.total_purchases))*100 AS pct
+   FROM Genre g
+   JOIN Track t USING(GenreId)
+   JOIN InvoiceLine il USING(TrackId)
+   JOIN Invoice i USING(InvoiceId)
+   JOIN t ON i.BillingCountry = t.BillingCountry
+   GROUP BY 1, 2) sub
+GROUP BY 1, 2
+ORDER BY 1, 3 DESC;
+
+
+/* Query 3: agents performance in our top 5 countries */
+
+SELECT e.FirstName || ' ' || e.LastName AS Agent,
+       c.Country,
+       SUM(i.total) total_sales
+FROM Employee e
+JOIN Customer c ON e.EmployeeId = c.SupportRepId
+JOIN Invoice i USING(CustomerId)
+WHERE c.country IN
+    (SELECT i.BillingCountry AS country
+     FROM Invoice i
+     GROUP BY 1
+     ORDER BY SUM(i.total) DESC
+     LIMIT 5)
+GROUP BY 1, 2
+ORDER BY 2;
+
+
+/* Query 4: sales & customers over years in our top 5 countries */
+
+SELECT strftime('%Y', i.InvoiceDate) AS YEAR,
+       i.BillingCountry country,
+       SUM(i.total) total_sales,
+       COUNT(c.customerid) customers
+FROM Invoice i
+JOIN Customer c USING(CustomerId)
+WHERE i.BillingCountry IN
+    (SELECT i.BillingCountry AS country
+     FROM Invoice i
+     GROUP BY 1
+     ORDER BY SUM(i.total) DESC
+     LIMIT 5)
+GROUP BY 1, 2
+ORDER BY 1, 3 DESC;
